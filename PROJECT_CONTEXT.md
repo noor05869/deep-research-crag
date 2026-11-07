@@ -35,6 +35,8 @@ This project implements a **Self-RAG (Self-Reflective RAG)** and **Corrective-RA
 | **Step 5** | `deep_research/generator.py` | Grounded answer synthesis with structured citations | ✅ Completed |
 | **Step 6** | `deep_research/evaluator.py` | Hallucination checker & answer relevance auditor | ✅ Completed |
 | **Step 7** | `deep_research/graph.py` | LangGraph StateGraph assembly (Wiring nodes & edges) | ✅ Completed |
+| **Step 8** | `deep_research/api.py` | Production FastAPI REST API Server & Schemas | ✅ Completed |
+| **Step 9** | `frontend/` | Modern React + Tailwind AI Research Dashboard | ✅ Completed |
 
 ---
 

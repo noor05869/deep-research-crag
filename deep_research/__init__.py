@@ -11,6 +11,7 @@ from deep_research.tools import transform_query_node, web_search_node
 from deep_research.generator import generate_node
 from deep_research.evaluator import check_hallucination_node
 from deep_research.graph import app, build_research_graph, run_research
+from deep_research.api import api
 
 __all__ = [
     "DeepResearchState",
@@ -23,4 +24,5 @@ __all__ = [
     "app",
     "build_research_graph",
     "run_research",
+    "api",
 ]

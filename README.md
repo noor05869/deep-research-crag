@@ -125,7 +125,29 @@ Each module in `deep_research/` is designed to be tested independently in isolat
 
 # 5. Test Hallucination & Fact-Checking Auditor
 .venv\Scripts\python -m deep_research.evaluator
+
+# 6. Test End-to-End LangGraph Orchestration
+.venv\Scripts\python -m deep_research.graph
+
+# 7. Start FastAPI REST Server
+.venv\Scripts\uvicorn deep_research.api:api --reload --port 8000
 ```
+
+Interactive OpenAPI Swagger documentation will be available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+
+---
+
+## 💻 Running the Frontend Dashboard
+
+A modern, responsive React & Tailwind CSS dashboard is available in the `frontend/` directory:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173) in your browser to interact with the full Corrective-RAG agent.
 
 ---
 
