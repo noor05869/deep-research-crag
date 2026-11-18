@@ -4,6 +4,7 @@ deep_research/retriever.py
 Internal Knowledge Base Retriever Node for Corrective RAG.
 Splits internal policy documents, embeds them using local HuggingFace embeddings,
 and retrieves top-k chunks into the LangGraph state.
+Also supports dynamic ingestion of user-uploaded files at runtime.
 """
 
 import sys
@@ -58,7 +59,8 @@ for item in INTERNAL_DOCUMENTS:
                 "doc_id": item["doc_id"],
                 "chunk_id": f"{item['doc_id']}_c{idx+1}"
             }
-        ))
+        )
+    )
 
 # Create in-memory Qdrant instance
 VECTORSTORE = QdrantVectorStore.from_documents(
@@ -69,6 +71,44 @@ VECTORSTORE = QdrantVectorStore.from_documents(
 )
 RETRIEVER = VECTORSTORE.as_retriever(search_kwargs={"k": 3})
 print(f"[✅ Retriever Ready] Indexed {len(raw_docs)} chunks in memory.")
+
+
+# =====================================================================
+# 1B. DYNAMIC INGESTION: Add Custom Uploaded Documents
+# =====================================================================
+def add_custom_document(content: str, filename: str) -> int:
+    """
+    Splits, embeds, and indexes an uploaded file into the active Qdrant vector store.
+
+    Args:
+        content: Extracted raw text from the uploaded file (.txt, .md, .pdf, .csv).
+        filename: Name of the file (e.g. 'annual_report.pdf') used for citation source attribution.
+
+    Returns:
+        int: Total number of chunk passages indexed into Qdrant.
+    """
+    if not content or not content.strip():
+        print(f"[⚠️ Ingest] Empty content received for '{filename}'. Skipping.")
+        return 0
+
+    chunks = splitter.split_text(content.strip())
+    new_docs = [
+        Document(
+            page_content=chunk.strip(),
+            metadata={
+                "source": filename,
+                "doc_id": f"upload_{filename}",
+                "chunk_id": f"upload_{filename}_c{idx+1}"
+            }
+        )
+        for idx, chunk in enumerate(chunks) if chunk.strip()
+    ]
+
+    if new_docs:
+        VECTORSTORE.add_documents(new_docs)
+        print(f"[📄 Ingest] Successfully indexed {len(new_docs)} chunk(s) from '{filename}' into Qdrant.")
+
+    return len(new_docs)
 
 
 # =====================================================================

@@ -37,6 +37,7 @@ This project implements a **Self-RAG (Self-Reflective RAG)** and **Corrective-RA
 | **Step 7** | `deep_research/graph.py` | LangGraph StateGraph assembly (Wiring nodes & edges) | ✅ Completed |
 | **Step 8** | `deep_research/api.py` | Production FastAPI REST API Server & Schemas | ✅ Completed |
 | **Step 9** | `frontend/` | Modern React + Tailwind AI Research Dashboard | ✅ Completed |
+| **Step 10** | Custom Ingestion | Dynamic File Upload (.pdf, .txt, .md) & In-Memory Vector Ingestion | ✅ Completed |
 
 ---
 

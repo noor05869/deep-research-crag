@@ -3,14 +3,15 @@ deep_research/api.py
 --------------------
 Production FastAPI REST API wrapper for DeepResearch-CRAG.
 Exposes async endpoints for health checks, research query execution,
-and structured evaluation metrics with full CORS support.
+and custom document ingestion (.pdf, .txt, .md, .csv) with full CORS support.
 """
 
 import sys
+import io
 import time
 import asyncio
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, UploadFile, File, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -20,6 +21,8 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
 
 from deep_research.graph import app as research_graph
 from deep_research.state import DeepResearchState
+from deep_research.retriever import add_custom_document
+from deep_research.knowledge_base import INTERNAL_DOCUMENTS
 
 
 # =====================================================================
@@ -71,13 +74,24 @@ class HealthResponse(BaseModel):
     llm: str
 
 
+class UploadResponse(BaseModel):
+    """Response returned upon successful file ingestion into Qdrant."""
+    filename: str
+    chunks_indexed: int
+    message: str
+
+
+# In-memory registry of active documents
+ACTIVE_DOCUMENTS: List[str] = [doc["title"] for doc in INTERNAL_DOCUMENTS]
+
+
 # =====================================================================
 # 2. FASTAPI APPLICATION CONFIGURATION
 # =====================================================================
 api = FastAPI(
     title="DeepResearch-CRAG Engine API",
     description="Autonomous Corrective-RAG & Self-RAG Research Engine powered by LangGraph, Qdrant & Gemini",
-    version="1.0.0",
+    version="1.1.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -85,7 +99,7 @@ api = FastAPI(
 # Enable CORS for frontend clients (Vite / Next.js / React)
 api.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Production: configure specific client origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -100,9 +114,10 @@ async def root():
     """Root welcome endpoint linking to API documentation."""
     return {
         "project": "DeepResearch-CRAG",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "documentation": "/docs",
-        "health": "/api/health"
+        "health": "/api/health",
+        "documents": "/api/documents"
     }
 
 
@@ -114,6 +129,68 @@ async def health_check():
         engine="LangGraph StateMachine",
         vector_store="In-Memory Qdrant",
         llm="Google Gemini Flash Lite"
+    )
+
+
+@api.get("/api/documents", response_model=List[str], tags=["Knowledge"])
+async def list_documents():
+    """Returns the list of all documents currently indexed in the active vector store."""
+    return ACTIVE_DOCUMENTS
+
+
+@api.post(
+    "/api/upload",
+    response_model=UploadResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Knowledge"]
+)
+async def upload_document(file: UploadFile = File(...)):
+    """
+    Ingests and indexes a user-uploaded file (.txt, .md, .pdf, .csv, .json)
+    directly into the active Qdrant vector database.
+    """
+    filename = file.filename or "uploaded_document"
+    contents = await file.read()
+
+    text = ""
+    # 1. Handle PDF files using pypdf
+    if filename.lower().endswith(".pdf"):
+        try:
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(contents))
+            pages_text = [page.extract_text() or "" for page in reader.pages]
+            text = "\n\n".join(pages_text).strip()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to parse PDF file '{filename}': {str(e)}"
+            )
+    else:
+        # 2. Handle Text, Markdown, CSV, JSON
+        try:
+            text = contents.decode("utf-8", errors="replace").strip()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to decode text file '{filename}': {str(e)}"
+            )
+
+    if not text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Uploaded file '{filename}' contains no readable text."
+        )
+
+    # 3. Embed & Index into Qdrant
+    chunks_count = await asyncio.to_thread(add_custom_document, text, filename)
+
+    if filename not in ACTIVE_DOCUMENTS:
+        ACTIVE_DOCUMENTS.append(filename)
+
+    return UploadResponse(
+        filename=filename,
+        chunks_indexed=chunks_count,
+        message=f"Successfully indexed {chunks_count} chunk(s) from '{filename}' into Qdrant."
     )
 
 

@@ -16,4 +16,10 @@ export interface ResearchResponse {
   execution_time_seconds: number;
 }
 
+export interface UploadResponse {
+  filename: string;
+  chunks_indexed: number;
+  message: string;
+}
+
 export type PipelineStage = 'idle' | 'retrieving' | 'grading' | 'fallback' | 'generating' | 'evaluating' | 'completed' | 'error';

@@ -5,7 +5,7 @@ import { PipelineTracker } from './components/PipelineTracker';
 import { AuditBanner } from './components/AuditBanner';
 import { ReportViewer } from './components/ReportViewer';
 import { CitationsSection } from './components/CitationsSection';
-import type { ResearchResponse, PipelineStage } from './types';
+import type { ResearchResponse, PipelineStage, UploadResponse } from './types';
 import { AlertCircle } from 'lucide-react';
 
 export function App() {
@@ -17,6 +17,24 @@ export function App() {
   const [serverHealthy, setServerHealthy] = useState<boolean | null>(null);
   const [activeCitation, setActiveCitation] = useState<string | null>(null);
 
+  // Upload state
+  const [uploading, setUploading] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [activeDocuments, setActiveDocuments] = useState<string[]>([]);
+
+  // Fetch active indexed documents
+  const fetchDocuments = async () => {
+    try {
+      const res = await fetch('/api/documents');
+      if (res.ok) {
+        const docs: string[] = await res.json();
+        setActiveDocuments(docs);
+      }
+    } catch (err) {
+      console.error('Failed to fetch indexed documents', err);
+    }
+  };
+
   useEffect(() => {
     const checkHealth = async () => {
       try {
@@ -27,7 +45,39 @@ export function App() {
       }
     };
     checkHealth();
+    fetchDocuments();
   }, []);
+
+  const handleUpload = async (file: File) => {
+    setUploading(true);
+    setError(null);
+    setUploadSuccess(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Upload failed with status ${res.status}`);
+      }
+
+      const data: UploadResponse = await res.json();
+      setUploadSuccess(`Successfully indexed ${data.chunks_indexed} chunk(s) from '${data.filename}' into Qdrant.`);
+      fetchDocuments();
+      setTimeout(() => setUploadSuccess(null), 5000);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Error uploading file.');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleSearch = async (searchQuery: string) => {
     if (!searchQuery.trim()) return;
@@ -98,6 +148,10 @@ export function App() {
           setQuery={setQuery}
           onSearch={handleSearch}
           loading={loading}
+          onUpload={handleUpload}
+          uploading={uploading}
+          uploadSuccess={uploadSuccess}
+          activeDocuments={activeDocuments}
         />
 
         <PipelineTracker stage={stage} />
@@ -144,6 +198,7 @@ export function App() {
               This system does not pass raw retrieval results into an LLM. It acts as an autonomous state machine:
             </p>
             <ul className="space-y-1.5 text-zinc-400 list-disc list-inside">
+              <li><strong className="text-zinc-300">Dynamic File Ingestion:</strong> Click <em>Upload</em> to index your own PDF, TXT, or MD documents directly into the active Qdrant vector store.</li>
               <li><strong className="text-zinc-300">Self-RAG Grading:</strong> Each retrieved chunk is scored for relevance. Irrelevant noise is stripped before generation.</li>
               <li><strong className="text-zinc-300">Live Search Fallback:</strong> If internal policy coverage is incomplete, an LLM query rewriter executes a live web search via DuckDuckGo.</li>
               <li><strong className="text-zinc-300">Fact Audit:</strong> Before releasing any response, an independent auditor verifies that every claim is strictly grounded in the reference documents.</li>
