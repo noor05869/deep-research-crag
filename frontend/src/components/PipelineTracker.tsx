@@ -4,9 +4,10 @@ import type { PipelineStage } from '../types';
 
 interface PipelineTrackerProps {
   stage: PipelineStage;
+  message?: string;
 }
 
-export const PipelineTracker: React.FC<PipelineTrackerProps> = ({ stage }) => {
+export const PipelineTracker: React.FC<PipelineTrackerProps> = ({ stage, message }) => {
   const [elapsed, setElapsed] = useState<number>(0);
 
   useEffect(() => {
@@ -40,7 +41,7 @@ export const PipelineTracker: React.FC<PipelineTrackerProps> = ({ stage }) => {
     <div className="flex items-center justify-between py-3 px-4 rounded-lg bg-[#111216] border border-zinc-800 text-xs text-zinc-300 mb-6">
       <div className="flex items-center space-x-2.5">
         <Loader2 className="w-4 h-4 animate-spin text-zinc-400 flex-shrink-0" />
-        <span className="font-mono text-zinc-300">{stageLabels[stage] || 'Orchestrating state machine...'}</span>
+        <span className="font-mono text-zinc-300">{message || stageLabels[stage] || 'Orchestrating state machine...'}</span>
       </div>
       <div className="flex items-center space-x-1.5 font-mono text-[11px] text-zinc-400 bg-zinc-900/80 px-2.5 py-1 rounded border border-zinc-800">
         <Timer className="w-3.5 h-3.5 text-amber-400" />

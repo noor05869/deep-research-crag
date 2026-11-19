@@ -39,6 +39,7 @@ This project implements a **Self-RAG (Self-Reflective RAG)** and **Corrective-RA
 | **Step 9** | `frontend/` | Modern React + Tailwind AI Research Dashboard | ✅ Completed |
 | **Step 10** | Custom Ingestion | Dynamic File Upload (.pdf, .txt, .md) & In-Memory Vector Ingestion | ✅ Completed |
 | **Step 11** | Backend Speed Optimization | Parallel `grader.py` & `evaluator.py`, pruned state, smart web search fallback | ✅ Completed |
+| **Step 12** | Real-Time SSE Streaming | `POST /api/research/stream` + React `ReadableStream` real-time node telemetry | ✅ Completed |
 
 ---
 

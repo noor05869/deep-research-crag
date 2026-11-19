@@ -12,6 +12,7 @@ export function App() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState<PipelineStage>('idle');
+  const [stageMessage, setStageMessage] = useState<string>('');
   const [result, setResult] = useState<ResearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [serverHealthy, setServerHealthy] = useState<boolean | null>(null);
@@ -86,15 +87,11 @@ export function App() {
     setError(null);
     setResult(null);
     setActiveCitation(null);
-
     setStage('retrieving');
-    const timer1 = setTimeout(() => setStage('grading'), 1500);
-    const timer2 = setTimeout(() => setStage('fallback'), 3000);
-    const timer3 = setTimeout(() => setStage('generating'), 5500);
-    const timer4 = setTimeout(() => setStage('evaluating'), 8000);
+    setStageMessage('Connecting to vector store and searching internal documents...');
 
     try {
-      const response = await fetch('/api/research', {
+      const response = await fetch('/api/research/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: searchQuery }),
@@ -105,18 +102,50 @@ export function App() {
         throw new Error(errJson.detail || `Server returned ${response.status}`);
       }
 
-      const data: ResearchResponse = await response.json();
-      setResult(data);
-      setStage('completed');
+      if (!response.body) {
+        throw new Error('ReadableStream not supported by browser.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            const rawJson = trimmed.slice(6);
+            try {
+              const frame = JSON.parse(rawJson);
+
+              if (frame.event === 'start' || frame.event === 'node_update') {
+                if (frame.stage) setStage(frame.stage as PipelineStage);
+                if (frame.message) setStageMessage(frame.message);
+              } else if (frame.event === 'complete') {
+                setResult(frame.data as ResearchResponse);
+                setStage('completed');
+                setStageMessage('Research completed.');
+              } else if (frame.event === 'error') {
+                throw new Error(frame.message || 'Stream processing error.');
+              }
+            } catch (parseErr) {
+              console.warn('Failed to parse SSE frame:', rawJson, parseErr);
+            }
+          }
+        }
+      }
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'An unexpected error occurred during execution.');
       setStage('error');
     } finally {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-      clearTimeout(timer3);
-      clearTimeout(timer4);
       setLoading(false);
     }
   };
@@ -154,7 +183,7 @@ export function App() {
           activeDocuments={activeDocuments}
         />
 
-        <PipelineTracker stage={stage} />
+        <PipelineTracker stage={stage} message={stageMessage} />
 
         {error && (
           <div className="p-3.5 rounded-lg bg-rose-950/30 border border-rose-800 text-rose-300 flex items-start space-x-2.5 mb-6 text-xs">
