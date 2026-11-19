@@ -43,8 +43,8 @@ EMBEDDINGS = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en-v1.5")
 
 # Split documents into semantic paragraphs
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size=400,
-    chunk_overlap=50,
+   chunk_size=1000,      # Increased from 400
+    chunk_overlap=150,    # Increased from 50
     separators=["\n\n", "\n", ". "]
 )
 
@@ -69,7 +69,7 @@ VECTORSTORE = QdrantVectorStore.from_documents(
     location=":memory:",
     collection_name="internal_knowledge"
 )
-RETRIEVER = VECTORSTORE.as_retriever(search_kwargs={"k": 3})
+RETRIEVER = VECTORSTORE.as_retriever(search_kwargs={"k": 5})
 print(f"[✅ Retriever Ready] Indexed {len(raw_docs)} chunks in memory.")
 
 

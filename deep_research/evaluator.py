@@ -11,6 +11,7 @@ import sys
 import os
 import warnings
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Literal
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -138,20 +139,20 @@ def check_hallucination_node(state: DeepResearchState) -> Dict[str, Any]:
     hallucination_chain, relevance_chain = build_evaluators()
 
     try:
-        # 1. Check Faithfulness / Grounding
-        hallucination_result: GradeHallucination = hallucination_chain.invoke({
-            "documents": docs_text,
-            "generation": generation
-        })
+        # Run Faithfulness and Answer Relevance checks concurrently
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_hallucination = executor.submit(
+                hallucination_chain.invoke,
+                {"documents": docs_text, "generation": generation}
+            )
+            future_relevance = executor.submit(
+                relevance_chain.invoke,
+                {"question": question, "generation": generation}
+            )
+            hallucination_result: GradeHallucination = future_hallucination.result()
+            relevance_result: GradeAnswerRelevance = future_relevance.result()
 
         print(f"  • Grounding Score:   [{hallucination_result.binary_score.upper()}] -> {hallucination_result.explanation}")
-
-        # 2. Check Answer Relevance
-        relevance_result: GradeAnswerRelevance = relevance_chain.invoke({
-            "question": question,
-            "generation": generation
-        })
-
         print(f"  • Relevance Score:   [{relevance_result.binary_score.upper()}] -> {relevance_result.explanation}")
 
         # If both pass, the answer is verified

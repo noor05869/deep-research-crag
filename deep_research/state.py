@@ -18,10 +18,10 @@ def merge_documents(existing: List[Dict[str, Any]], new: List[Dict[str, Any]]) -
     """
     if not existing:
         return new
-    existing_ids = {doc.get("id") or doc.get("content")[:50] for doc in existing}
+    existing_ids = {doc.get("doc_id") or doc.get("content")[:50] for doc in existing}
     merged = list(existing)
     for doc in new:
-        doc_id = doc.get("id") or doc.get("content")[:50]
+        doc_id = doc.get("doc_id") or doc.get("content")[:50]
         if doc_id not in existing_ids:
             merged.append(doc)
             existing_ids.add(doc_id)
@@ -41,11 +41,11 @@ class DeepResearchState(TypedDict):
     """The query optimized by our Query Rewriter node for vector or web search."""
 
     # 2. Retrieved Context & Knowledge
-    documents: Annotated[List[Dict[str, Any]], merge_documents]
+    documents: List[Dict[str, Any]]
     """
     List of document chunks retrieved from internal vector store or external web.
-    Each item contains: {"content": str, "source": str, "score": float}
-    Annotated with merge_documents reducer to append unique documents across loops.
+    Each item contains: {"content": str, "source": str, "doc_id": str}
+    Nodes explicitly manage, filter, or append to this list.
     """
 
     # 3. Decision Flags & Routing Signals
@@ -70,4 +70,4 @@ class DeepResearchState(TypedDict):
     """
     Counter incremented on each corrective loop.
     Acts as a safety circuit breaker: if loop_step >= 3, force termination to prevent runaway API costs.
-    """                                                                                             
+    """

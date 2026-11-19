@@ -139,9 +139,11 @@ def web_search_node(state: DeepResearchState) -> Dict[str, Any]:
     except Exception as e:
         print(f"  • Web Search Error: {e}")
 
+    # Supplement existing filtered docs with fresh web search evidence
+    existing_docs = state.get("documents", [])
     # Note: loop_step increments by 1 via our Annotated reducer to prevent infinite loops!
     return {
-        "documents": web_docs,
+        "documents": existing_docs + web_docs,
         "loop_step": 1
     }
 

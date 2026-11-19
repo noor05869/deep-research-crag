@@ -10,6 +10,7 @@ import os
 import sys
 import warnings
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 warnings.filterwarnings("ignore")
 logging.getLogger("google.genai").setLevel(logging.ERROR)
@@ -82,6 +83,7 @@ def grade_documents_node(state: DeepResearchState) -> Dict[str, Any]:
     """
     LangGraph Node that reads documents from the state, filters out irrelevant ones,
     and flags whether an external web search is needed.
+    Optimized with concurrent ThreadPoolExecutor for low latency.
 
     Args:
         state: Current DeepResearchState
@@ -92,42 +94,50 @@ def grade_documents_node(state: DeepResearchState) -> Dict[str, Any]:
     question = state.get("transformed_query") or state.get("raw_query")
     documents = state.get("documents", [])
 
-    print(f"\n[🔍 Grader Node] Inspecting {len(documents)} retrieved document(s)...")
-
-    grader_chain = build_document_grader()
-    filtered_docs: List[Dict[str, Any]] = []
-    web_search_needed = False
+    print(f"\n[🔍 Grader Node] Concurrently inspecting {len(documents)} retrieved document(s)...")
 
     if not documents:
         print("[⚠️ Grader Node] Zero documents retrieved. Web search immediately required.")
         return {"documents": [], "web_search_needed": True}
 
-    for idx, doc in enumerate(documents, start=1):
+    grader_chain = build_document_grader()
+
+    def evaluate_doc(item: tuple[int, Dict[str, Any]]) -> tuple[int, Dict[str, Any], bool, str]:
+        idx, doc = item
         content = doc.get("content", "")
         source = doc.get("source", "unknown")
-
         try:
             grade: GradeDocuments = grader_chain.invoke({
                 "question": question,
                 "document": content
             })
-
-            if grade.binary_score.lower() == "yes":
-                print(f"  • Doc #{idx} [{source[:30]}...]: ✅ RELEVANT -> {grade.reasoning}")
-                filtered_docs.append(doc)
-            else:
-                print(f"  • Doc #{idx} [{source[:30]}...]: ❌ IRRELEVANT -> {grade.reasoning}")
-                # Any noise or insufficient coverage flags that web search can supplement
-                web_search_needed = True
-
+            is_rel = grade.binary_score.lower() == "yes"
+            return (idx, doc, is_rel, grade.reasoning)
         except Exception as e:
             print(f"  • Doc #{idx} Grading Error: {e}. Defaulting to keep.")
-            filtered_docs.append(doc)
+            return (idx, doc, True, f"Error: {e}")
 
-    # If all docs were rejected, we MUST trigger web search
+    # Grade all retrieved documents concurrently
+    max_workers = min(len(documents), 5)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        graded_results = list(executor.map(evaluate_doc, enumerate(documents, start=1)))
+
+    filtered_docs: List[Dict[str, Any]] = []
+    for idx, doc, is_rel, reason in graded_results:
+        source = doc.get("source", "unknown")
+        if is_rel:
+            print(f"  • Doc #{idx} [{source[:30]}...]: ✅ RELEVANT -> {reason}")
+            filtered_docs.append(doc)
+        else:
+            print(f"  • Doc #{idx} [{source[:30]}...]: ❌ IRRELEVANT -> {reason}")
+
+    # Fallback logic: Only trigger web search if ZERO internal documents are relevant
     if len(filtered_docs) == 0:
         print("[🚨 Grader Node] All documents were rejected as irrelevant. Fallback to Web Search triggered.")
         web_search_needed = True
+    else:
+        print(f"  • [✅ Grader Node] Retained {len(filtered_docs)}/{len(documents)} relevant document(s). Web search bypassed.")
+        web_search_needed = False
 
     return {
         "documents": filtered_docs,

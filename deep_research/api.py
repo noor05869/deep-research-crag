@@ -235,6 +235,7 @@ async def execute_research(request: ResearchRequest):
         )
 
     elapsed_time = round(time.time() - start_time, 2)
+    print(f"\n[⚡ Execution Complete] Query: '{request.query[:60]}...' | Duration: {elapsed_time}s | Loops: {final_state.get('loop_step', 0)} | Docs: {len(final_state.get('documents', []))}")
 
     # Format citations safely
     citations = [
