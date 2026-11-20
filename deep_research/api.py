@@ -7,6 +7,7 @@ and custom document ingestion (.pdf, .txt, .md, .csv) with full CORS support.
 """
 
 import sys
+import os
 import io
 import time
 import asyncio
@@ -395,6 +396,16 @@ async def execute_research_stream(request: ResearchRequest):
             "X-Accel-Buffering": "no",
         }
     )
+
+
+# =====================================================================
+# 3B. SERVE STATIC FRONTEND WORKSTATION (IF BUILT)
+# =====================================================================
+from fastapi.staticfiles import StaticFiles
+
+frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend', 'dist')
+if os.path.exists(frontend_dist):
+    api.mount('/', StaticFiles(directory=frontend_dist, html=True), name='frontend')
 
 
 # =====================================================================

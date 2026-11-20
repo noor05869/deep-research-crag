@@ -40,6 +40,8 @@ This project implements a **Self-RAG (Self-Reflective RAG)** and **Corrective-RA
 | **Step 10** | Custom Ingestion | Dynamic File Upload (.pdf, .txt, .md) & In-Memory Vector Ingestion | ✅ Completed |
 | **Step 11** | Backend Speed Optimization | Parallel `grader.py` & `evaluator.py`, pruned state, smart web search fallback | ✅ Completed |
 | **Step 12** | Real-Time SSE Streaming | `POST /api/research/stream` + React `ReadableStream` real-time node telemetry | ✅ Completed |
+| **Step 13** | Automated Pytest Suite | `tests/` suite (state, retriever, conditional routing, API endpoints) — 14/14 tests green | ✅ Completed |
+| **Step 14** | Production Containerization | Multi-stage `Dockerfile`, `docker-compose.yml`, unified static frontend serving | ✅ Completed |
 
 ---
 
