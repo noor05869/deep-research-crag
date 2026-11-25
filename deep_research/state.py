@@ -7,8 +7,10 @@ in the LangGraph state machine.
 """
 
 from typing import Annotated, List, Dict, Any, Optional
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 import operator
+
+MAX_CORRECTIVE_LOOPS = 3
 
 
 def merge_documents(existing: List[Dict[str, Any]], new: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -50,16 +52,17 @@ class DeepResearchState(TypedDict):
 
     # 3. Decision Flags & Routing Signals
     web_search_needed: bool
+    missing_evidence: NotRequired[str]
     """Flag set to True by the Document Grader if internal documents are irrelevant or insufficient."""
 
     hallucination_grade: Optional[str]
-    """Evaluation signal: 'grounded' if the answer is backed by facts, 'hallucinated' if not."""
+    """Audit outcome: grounded, hallucinated, or audit_failed if the audit could not complete."""
 
     # 4. Final Output & Citations
     final_response: Optional[str]
     """The final synthesized research report generated for the user."""
 
-    citations: Annotated[List[Dict[str, str]], operator.add]
+    citations: List[Dict[str, str]]
     """
     List of verified citations backing the claims.
     Format: [{"citation_id": "[1]", "source": "https://...", "quote": "..."}]

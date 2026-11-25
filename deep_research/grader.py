@@ -79,6 +79,22 @@ def build_document_grader():
 # =====================================================================
 # 3. LANGGRAPH NODE FUNCTION: The State Transition
 # =====================================================================
+class EvidenceCoverage(BaseModel):
+    missing_evidence: str = Field(
+        description="Specific facts still needed to answer the question. Empty if all parts are supported."
+    )
+
+
+def build_coverage_grader():
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "Check whether the evidence collectively answers every material part of the question. "
+         "Return the missing facts as a concise description, or an empty string for full coverage."),
+        ("human", "Question: {question}\n\nEvidence:\n{evidence}"),
+    ])
+    llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash-lite")
+    return prompt | llm.with_structured_output(EvidenceCoverage)
+
+
 def grade_documents_node(state: DeepResearchState) -> Dict[str, Any]:
     """
     LangGraph Node that reads documents from the state, filters out irrelevant ones,
@@ -131,17 +147,22 @@ def grade_documents_node(state: DeepResearchState) -> Dict[str, Any]:
         else:
             print(f"  • Doc #{idx} [{source[:30]}...]: ❌ IRRELEVANT -> {reason}")
 
-    # Fallback logic: Only trigger web search if ZERO internal documents are relevant
-    if len(filtered_docs) == 0:
-        print("[🚨 Grader Node] All documents were rejected as irrelevant. Fallback to Web Search triggered.")
-        web_search_needed = True
-    else:
-        print(f"  • [✅ Grader Node] Retained {len(filtered_docs)}/{len(documents)} relevant document(s). Web search bypassed.")
-        web_search_needed = False
+    missing_evidence = ""
+    if filtered_docs:
+        try:
+            coverage = build_coverage_grader().invoke({
+                "question": question,
+                "evidence": "\n\n".join(doc["content"] for doc in filtered_docs),
+            })
+            missing_evidence = coverage.missing_evidence.strip()
+        except Exception as e:
+            print(f"  • Coverage Check Error: {e}")
+            missing_evidence = "Find evidence that answers all parts of the question."
 
     return {
         "documents": filtered_docs,
-        "web_search_needed": web_search_needed,
+        "web_search_needed": not filtered_docs or bool(missing_evidence),
+        "missing_evidence": missing_evidence,
     }
 
 

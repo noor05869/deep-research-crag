@@ -32,14 +32,14 @@ load_dotenv()
 from langgraph.graph import StateGraph, START, END
 
 try:
-    from deep_research.state import DeepResearchState
+    from deep_research.state import DeepResearchState, MAX_CORRECTIVE_LOOPS
     from deep_research.retriever import retrieve_node
     from deep_research.grader import grade_documents_node
     from deep_research.tools import transform_query_node, web_search_node
     from deep_research.generator import generate_node
     from deep_research.evaluator import check_hallucination_node
 except ModuleNotFoundError:
-    from state import DeepResearchState
+    from state import DeepResearchState, MAX_CORRECTIVE_LOOPS
     from retriever import retrieve_node
     from grader import grade_documents_node
     from tools import transform_query_node, web_search_node
@@ -83,12 +83,12 @@ def decide_evaluation(state: DeepResearchState) -> Literal["transform_query", "_
     loop_step = state.get("loop_step", 0)
 
     # 1. Circuit Breaker Guard
-    if loop_step >= 3:
+    if loop_step >= MAX_CORRECTIVE_LOOPS:
         print(f"\n[⚠️ Router Circuit Breaker] Max corrective loops reached ({loop_step}/3). Forcing termination -> END.")
         return END
 
     # 2. Quality Audit Check
-    hallucination_grade = state.get("hallucination_grade", "grounded")
+    hallucination_grade = state.get("hallucination_grade")
 
     if hallucination_grade == "grounded":
         print("\n[🎯 Router: Gate 2] Answer verified (grounded & relevant) -> Routing to END.")
