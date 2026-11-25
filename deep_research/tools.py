@@ -56,11 +56,14 @@ Rules:
 1. Strip all conversational filler (e.g., 'Can you tell me', 'I was wondering', 'Please explain').
 2. Keep the core subject, exact technical terms, version numbers, and specific entities.
 3. Target factual search engine results (like documentation, announcements, or Wikipedia).
-4. Do NOT answer the question. Only output the optimized search query."""
+4. When a gap is provided, target the missing facts while preserving the question's subject.
+5. Use the previous search query to avoid repeating a failed search.
+6. Do NOT answer the question. Only output the optimized search query."""
 
 REWRITER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", REWRITER_SYSTEM_PROMPT),
-    ("human", "Original user question: {question}\n\nOptimized search query:")
+    ("human", "Original user question: {question}\nMissing evidence: {missing_evidence}"
+     "\nPrevious search query: {previous_query}\n\nOptimized search query:")
 ])
 
 
@@ -89,10 +92,13 @@ def transform_query_node(state: DeepResearchState) -> Dict[str, Any]:
     raw_query = state["raw_query"]
     print(f"\n[🔄 Query Rewriter Node] Analyzing query: '{raw_query}'")
 
-    rewriter = build_query_rewriter()
     try:
-        result: QueryRewrite = rewriter.invoke({"question": raw_query})
-        optimized = result.search_query.strip()
+        result: QueryRewrite = build_query_rewriter().invoke({
+            "question": raw_query,
+            "missing_evidence": state.get("missing_evidence", ""),
+            "previous_query": state.get("transformed_query") or "",
+        })
+        optimized = result.search_query.strip() or raw_query
         print(f"  • Optimized Web Query: '{optimized}'")
         print(f"  • Rationale: {result.rationale}")
         return {"transformed_query": optimized}
@@ -144,6 +150,7 @@ def web_search_node(state: DeepResearchState) -> Dict[str, Any]:
     # Note: loop_step increments by 1 via our Annotated reducer to prevent infinite loops!
     return {
         "documents": existing_docs + web_docs,
+        "web_search_needed": True,
         "loop_step": 1
     }
 

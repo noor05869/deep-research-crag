@@ -27,7 +27,8 @@ export const AuditBanner: React.FC<AuditBannerProps> = ({ data }) => {
           <AlertCircle className="w-4 h-4 text-rose-400" />
         )}
         <span className="font-medium text-zinc-200">
-          {isGrounded ? 'Factually Grounded' : 'Flagged Unverified Claims'}
+          {isGrounded ? 'Passed Grounding Audit' : data.hallucination_grade === 'audit_failed'
+            ? 'Audit Could Not Complete' : 'Answer Could Not Be Verified'}
         </span>
         <span className="text-zinc-600">•</span>
         <span className="text-zinc-400">
