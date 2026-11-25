@@ -240,7 +240,10 @@ async def execute_research(request: ResearchRequest):
     elapsed_time = round(time.time() - start_time, 2)
     print(f"\n[⚡ Execution Complete] Query: '{request.query[:60]}...' | Duration: {elapsed_time}s | Loops: {final_state.get('loop_step', 0)} | Docs: {len(final_state.get('documents', []))}")
 
-    # Format citations safely
+    return build_research_response(request.query, final_state, elapsed_time)
+
+
+def build_research_response(query: str, final_state: DeepResearchState, elapsed_time: float) -> ResearchResponse:
     citations = [
         CitationResponse(
             citation_id=c.get("citation_id", "[?]"),
@@ -251,7 +254,7 @@ async def execute_research(request: ResearchRequest):
     ]
 
     return ResearchResponse(
-        query=request.query,
+        query=query,
         transformed_query=final_state.get("transformed_query"),
         final_response=final_state.get("final_response") or "Unable to generate an audited response.",
         citations=citations,
@@ -289,14 +292,15 @@ async def execute_research_stream(request: ResearchRequest):
         # 1. Handshake frame
         yield f"data: {json.dumps({'event': 'start', 'stage': 'retrieving', 'message': 'Connecting to vector store and searching internal documents...'})}\n\n"
 
-        accumulated_state = dict(initial_state)
+        final_state = initial_state
 
         try:
             # Stream node updates in real-time as they complete
-            async for chunk in research_graph.astream(initial_state, stream_mode="updates"):
+            async for mode, chunk in research_graph.astream(initial_state, stream_mode=["updates", "values"]):
+                if mode == "values":
+                    final_state = chunk
+                    continue
                 for node_name, node_output in chunk.items():
-                    accumulated_state.update(node_output)
-
                     # Build telemetry payload per node
                     if node_name == "retrieve":
                         count = len(node_output.get("documents", []))
@@ -313,7 +317,7 @@ async def execute_research_stream(request: ResearchRequest):
                             "event": "node_update",
                             "node": "grade_documents",
                             "stage": "fallback" if web_needed else "generating",
-                            "message": f"Retained {retained} verified chunk(s). Web fallback needed: {web_needed}."
+                            "message": f"Retained {retained} relevant chunk(s). Web fallback needed: {web_needed}."
                         }
                     elif node_name == "transform_query":
                         q = node_output.get("transformed_query", "")
@@ -336,10 +340,10 @@ async def execute_research_stream(request: ResearchRequest):
                             "event": "node_update",
                             "node": "generate",
                             "stage": "evaluating",
-                            "message": "Synthesized grounded answer with inline citations. Running hallucination audit..."
+                            "message": "Synthesized a draft with inline citations. Running hallucination audit..."
                         }
                     elif node_name == "check_hallucination":
-                        grade = node_output.get("hallucination_grade", "grounded")
+                        grade = node_output.get("hallucination_grade", "audit_failed")
                         payload = {
                             "event": "node_update",
                             "node": "check_hallucination",
@@ -358,28 +362,11 @@ async def execute_research_stream(request: ResearchRequest):
 
             # 3. Final Completion Frame with Full Payload
             elapsed_time = round(time.time() - start_time, 2)
-            print(f"\n[⚡ SSE Stream Complete] Query: '{request.query[:60]}...' | Duration: {elapsed_time}s | Docs: {len(accumulated_state.get('documents', []))}")
+            print(f"\n[⚡ SSE Stream Complete] Query: '{request.query[:60]}...' | Duration: {elapsed_time}s | Docs: {len(final_state.get('documents', []))}")
 
-            citations = [
-                {
-                    "citation_id": c.get("citation_id", "[?]"),
-                    "source": c.get("source", "Unknown"),
-                    "quote": c.get("quote", "")
-                }
-                for c in accumulated_state.get("citations", [])
-            ]
-
-            final_response_payload = {
-                "query": request.query,
-                "transformed_query": accumulated_state.get("transformed_query"),
-                "final_response": accumulated_state.get("final_response") or "Unable to generate an audited response.",
-                "citations": citations,
-                "web_search_needed": accumulated_state.get("web_search_needed", False),
-                "hallucination_grade": accumulated_state.get("hallucination_grade"),
-                "loop_step": accumulated_state.get("loop_step", 0),
-                "documents_count": len(accumulated_state.get("documents", [])),
-                "execution_time_seconds": elapsed_time,
-            }
+            final_response_payload = build_research_response(
+                request.query, final_state, elapsed_time
+            ).model_dump()
 
             yield f"data: {json.dumps({'event': 'complete', 'data': final_response_payload})}\n\n"
 

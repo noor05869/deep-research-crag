@@ -141,15 +141,13 @@ def generate_node(state: DeepResearchState) -> Dict[str, Any]:
         }
 
     formatted_context = format_context_for_synthesis(documents)
-    generator_chain = build_generator_chain()
-
     try:
-        report: SynthesizedReport = generator_chain.invoke({
+        report: SynthesizedReport = build_generator_chain().invoke({
             "formatted_context": formatted_context,
             "question": question
         })
 
-        print(f"  • Successfully synthesized response with {len(report.citations)} verified citation(s).")
+        print(f"  • Synthesized draft with {len(report.citations)} citation(s) awaiting audit.")
 
         return {
             "final_response": report.answer,
@@ -159,7 +157,7 @@ def generate_node(state: DeepResearchState) -> Dict[str, Any]:
     except Exception as e:
         print(f"  • Generation Error: {e}")
         return {
-            "final_response": f"An error occurred while generating the answer: {str(e)}",
+            "final_response": None,
             "citations": []
         }
 

@@ -11,6 +11,7 @@ import sys
 import os
 import warnings
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Literal
 from pydantic import BaseModel, Field
@@ -32,9 +33,11 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 try:
-    from deep_research.state import DeepResearchState
+    from deep_research.state import DeepResearchState, MAX_CORRECTIVE_LOOPS
+    from deep_research.generator import format_context_for_synthesis
 except ModuleNotFoundError:
-    from state import DeepResearchState
+    from state import DeepResearchState, MAX_CORRECTIVE_LOOPS
+    from generator import format_context_for_synthesis
 
 
 # =====================================================================
@@ -70,7 +73,8 @@ Grading Rules:
 1. Compare every statement in the generated answer against the reference documents.
 2. If the answer contains ANY facts, numbers, dates, or assertions NOT present in the reference documents, grade it as 'hallucinated'.
 3. If all claims are completely grounded in the documents, grade it as 'grounded'.
-4. Be strict: extrapolations, assumptions, or outside knowledge must be flagged as 'hallucinated'."""
+4. Each cited claim must be supported by the numbered document it cites.
+5. Identify the specific unsupported claims or evidence needed to correct the answer."""
 
 HALLUCINATION_PROMPT = ChatPromptTemplate.from_messages([
     ("system", HALLUCINATION_SYSTEM_PROMPT),
@@ -85,8 +89,8 @@ HALLUCINATION_PROMPT = ChatPromptTemplate.from_messages([
 ANSWER_RELEVANCE_SYSTEM_PROMPT = """You are an objective evaluator assessing whether a generated answer actually resolves the user's question.
 
 Grading Rules:
-1. If the response directly answers the core question asked by the user, grade it as 'yes'.
-2. If the response dodges the question, is off-topic, or fails to address the user's request, grade it as 'no'."""
+1. Grade 'yes' only if the answer addresses every material part of the question.
+2. Otherwise grade 'no' and specify the missing information needed to answer the question."""
 
 ANSWER_RELEVANCE_PROMPT = ChatPromptTemplate.from_messages([
     ("system", ANSWER_RELEVANCE_SYSTEM_PROMPT),
@@ -113,6 +117,14 @@ def build_evaluators():
 # =====================================================================
 # 3. LANGGRAPH NODE FUNCTION: Hallucination Check
 # =====================================================================
+def failed_audit(state: DeepResearchState, grade: str, missing_evidence: str) -> Dict[str, Any]:
+    update = {"hallucination_grade": grade, "missing_evidence": missing_evidence}
+    if state.get("loop_step", 0) >= MAX_CORRECTIVE_LOOPS:
+        update["final_response"] = "Unable to verify an answer with the available evidence."
+        update["citations"] = []
+    return update
+
+
 def check_hallucination_node(state: DeepResearchState) -> Dict[str, Any]:
     """
     LangGraph Node: Audits the generated response for hallucinations and question relevance.
@@ -121,7 +133,7 @@ def check_hallucination_node(state: DeepResearchState) -> Dict[str, Any]:
         state: Current DeepResearchState
 
     Returns:
-        Partial state update: {"hallucination_grade": "grounded" | "hallucinated"}
+        Audit status, validated citations on success, or evidence gaps on rejection.
     """
     question = state["raw_query"]
     generation = state.get("final_response", "")
@@ -129,21 +141,28 @@ def check_hallucination_node(state: DeepResearchState) -> Dict[str, Any]:
 
     print(f"\n[⚖️ Evaluator Node] Auditing generated answer for hallucinations and relevance...")
 
-    if not generation:
-        print("  • Warning: No generation found to evaluate.")
-        return {"hallucination_grade": "hallucinated"}
+    markers = set(re.findall(r"\[\d+\]", generation or ""))
+    citations = state.get("citations", [])
+    citation_ids = {citation["citation_id"] for citation in citations}
+    if not markers or markers != citation_ids or len(citations) != len(citation_ids):
+        return failed_audit(state, "hallucinated", "Find evidence that can support the answer with valid citations.")
 
-    # Concatenate document text for the auditor
-    docs_text = "\n\n".join([f"Source ({d.get('source')}):\n{d.get('content')}" for d in documents])
-
-    hallucination_chain, relevance_chain = build_evaluators()
+    chunks = {f"[{index}]": doc for index, doc in enumerate(documents, start=1)}
+    verified_citations = []
+    for citation in citations:
+        chunk = chunks.get(citation["citation_id"])
+        quote = citation["quote"].strip()
+        if not chunk or not quote or quote not in chunk.get("content", ""):
+            return failed_audit(state, "hallucinated", "Find evidence with an exact supporting excerpt.")
+        verified_citations.append({**citation, "source": chunk.get("source", "Unknown Source"), "quote": quote})
 
     try:
+        hallucination_chain, relevance_chain = build_evaluators()
         # Run Faithfulness and Answer Relevance checks concurrently
         with ThreadPoolExecutor(max_workers=2) as executor:
             future_hallucination = executor.submit(
                 hallucination_chain.invoke,
-                {"documents": docs_text, "generation": generation}
+                {"documents": format_context_for_synthesis(documents), "generation": generation}
             )
             future_relevance = executor.submit(
                 relevance_chain.invoke,
@@ -158,14 +177,19 @@ def check_hallucination_node(state: DeepResearchState) -> Dict[str, Any]:
         # If both pass, the answer is verified
         if hallucination_result.binary_score == "grounded" and relevance_result.binary_score == "yes":
             print("  • ✅ AUDIT PASSED: The response is fully grounded and answers the question.")
-            return {"hallucination_grade": "grounded"}
+            return {"hallucination_grade": "grounded", "citations": verified_citations, "missing_evidence": ""}
         else:
             print("  • ❌ AUDIT FAILED: The response failed either grounding or relevance checks.")
-            return {"hallucination_grade": "hallucinated"}
+            gaps = []
+            if hallucination_result.binary_score != "grounded":
+                gaps.append(hallucination_result.explanation)
+            if relevance_result.binary_score != "yes":
+                gaps.append(relevance_result.explanation)
+            return failed_audit(state, "hallucinated", " ".join(gaps))
 
     except Exception as e:
-        print(f"  • Evaluator Error: {e}. Defaulting to grounded.")
-        return {"hallucination_grade": "grounded"}
+        print(f"  • Evaluator Error: {e}")
+        return failed_audit(state, "audit_failed", state.get("missing_evidence", ""))
 
 
 # =====================================================================
@@ -188,8 +212,12 @@ if __name__ == "__main__":
         "documents": sample_context,
         "web_search_needed": False,
         "hallucination_grade": None,
-        "final_response": "The standard loan period for fossil specimens is 60 calendar days, and external loans require curator approval.",
-        "citations": [],
+        "final_response": "The standard loan period for fossil specimens is 60 calendar days [1].",
+        "citations": [{
+            "citation_id": "[1]",
+            "source": sample_context[0]["source"],
+            "quote": "The standard loan period for fossil specimens is 60 calendar days.",
+        }],
         "loop_step": 0
     }
 
